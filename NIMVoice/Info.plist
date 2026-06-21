@@ -30,6 +30,8 @@
 	<string>NIM Voice uses the camera to capture a photo to ask vision-capable NVIDIA models about.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>NIM Voice can attach a photo from your library to ask vision-capable NVIDIA models about.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NIM Voice uses your approximate location to make "nearby" web searches more relevant. It's optional and only used while you're using the app.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

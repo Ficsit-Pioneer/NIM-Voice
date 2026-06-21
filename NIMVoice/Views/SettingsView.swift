@@ -208,10 +208,12 @@ struct SettingsView: View {
         @Bindable var settings = settings
         return Section {
             Toggle("Web search", isOn: $settings.webSearchEnabled)
+            Toggle("Use my location", isOn: $settings.locationEnabled)
+                .disabled(!settings.webSearchEnabled)
         } header: {
             Text("Web")
         } footer: {
-            Text("When on, each question is first looked up via DuckDuckGo and Wikipedia (no API key needed) and the results are handed to the model. Great for facts, definitions, and \"who/what is…\"; coverage is limited for very recent events.")
+            Text("When on, each question is looked up via DuckDuckGo + Wikipedia (no API key) and the top pages are read so the model sees real page content — great for facts, articles, and reference pages. Reading is limited for app-style sites (live menus, prices, maps) that render with JavaScript. \"Use my location\" adds your approximate city to searches so \"nearby\" questions have a reference point.")
         }
     }
 

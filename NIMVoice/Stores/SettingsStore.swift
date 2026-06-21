@@ -35,6 +35,7 @@ final class SettingsStore {
     var autoListen: Bool            // re-open mic automatically after each reply
     var captionsEnabled: Bool
     var webSearchEnabled: Bool      // ground answers with keyless web search
+    var locationEnabled: Bool       // include approximate location in web search
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var isLoading = true
@@ -55,6 +56,7 @@ final class SettingsStore {
         autoListen = defaults.object(forKey: Keys.autoListen) as? Bool ?? true
         captionsEnabled = defaults.object(forKey: Keys.captions) as? Bool ?? false
         webSearchEnabled = defaults.object(forKey: Keys.webSearch) as? Bool ?? false
+        locationEnabled = defaults.object(forKey: Keys.location) as? Bool ?? false
 
         isLoading = false
         observeAndPersist()
@@ -86,7 +88,8 @@ final class SettingsStore {
             // Touch every persisted property so all are tracked.
             _ = (systemPrompt, activeModelID, favoriteModelIDs, voiceIdentifier,
                  speechRate, pitch, temperature, topP, maxTokens,
-                 silenceTimeout, autoListen, captionsEnabled, webSearchEnabled)
+                 silenceTimeout, autoListen, captionsEnabled, webSearchEnabled,
+                 locationEnabled)
         } onChange: { [weak self] in
             // onChange fires *before* the mutation commits, so defer to the next
             // main-actor turn to read the new values, then re-arm.
@@ -116,6 +119,7 @@ final class SettingsStore {
         defaults.set(autoListen, forKey: Keys.autoListen)
         defaults.set(captionsEnabled, forKey: Keys.captions)
         defaults.set(webSearchEnabled, forKey: Keys.webSearch)
+        defaults.set(locationEnabled, forKey: Keys.location)
     }
 
     private enum Keys {
@@ -132,5 +136,6 @@ final class SettingsStore {
         static let autoListen = "settings.autoListen"
         static let captions = "settings.captions"
         static let webSearch = "settings.webSearch"
+        static let location = "settings.location"
     }
 }

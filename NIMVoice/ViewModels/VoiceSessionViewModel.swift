@@ -222,10 +222,12 @@ final class VoiceSessionViewModel {
             return
         }
 
-        // Optional keyless web search to ground the answer (best-effort).
-        let searchContext = settings.webSearchEnabled
-            ? await WebSearchService.shared.search(userText)
-            : nil
+        // Optional keyless web search (+ page reading) to ground the answer.
+        var searchContext: String? = nil
+        if settings.webSearchEnabled {
+            let place = settings.locationEnabled ? await LocationService.shared.placeDescription() : nil
+            searchContext = await WebSearchService.shared.search(userText, location: place)
+        }
 
         let history = conversations.current?.messages ?? []
         do {

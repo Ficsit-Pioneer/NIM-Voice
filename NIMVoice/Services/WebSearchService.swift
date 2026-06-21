@@ -1,7 +1,9 @@
 import Foundation
 
-/// Keyless web search used to ground the model's answers. Combines DuckDuckGo's
-/// Instant Answer API and Wikipedia search — neither needs an API key.
+/// Keyless web search + page reading used to ground the model's answers.
+/// Combines DuckDuckGo's Instant Answer API and Wikipedia search (no API key),
+/// then *reads the actual top result pages* so the model sees real page content
+/// rather than just snippets.
 ///
 /// Best-effort by design: every network call is wrapped in `try?` and the whole
 /// thing returns `nil` when nothing useful is found, so a failed or empty search
@@ -16,24 +18,68 @@ struct WebSearchService: Sendable {
         self.session = session
     }
 
-    /// Returns a formatted context block of results, or nil if nothing was found.
-    func search(_ query: String) async -> String? {
+    private struct SourceResult: Sendable {
+        let lines: [String]
+        let urls: [String]
+    }
+
+    /// Returns a formatted context block (snippets + read page text), or nil.
+    /// `location`, when set (e.g. "Austin, Texas, United States"), is added to the
+    /// query and the context so "nearby" questions have a reference point.
+    func search(_ query: String, location: String? = nil) async -> String? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 3 else { return nil }
 
-        // Query both sources concurrently.
-        async let ddg = duckDuckGo(trimmed)
-        async let wiki = wikipedia(trimmed)
-        let lines = (await ddg ?? []) + (await wiki ?? [])
+        // Bias the lookups toward the user's area when we have a location.
+        let effectiveQuery = location.map { "\(trimmed) \($0)" } ?? trimmed
 
-        guard !lines.isEmpty else { return nil }
-        let body = lines.prefix(6).joined(separator: "\n")
-        return "Web search results for \"\(trimmed)\":\n\n\(body)"
+        async let ddg = duckDuckGo(effectiveQuery)
+        async let wiki = wikipedia(effectiveQuery)
+        let ddgResult = await ddg
+        let wikiResult = await wiki
+
+        let snippetLines = (ddgResult?.lines ?? []) + (wikiResult?.lines ?? [])
+        let candidateURLs = uniqued((ddgResult?.urls ?? []) + (wikiResult?.urls ?? []))
+
+        // Read the top pages concurrently so the model sees real content.
+        let pageSections = await readPages(Array(candidateURLs.prefix(2)))
+
+        guard !snippetLines.isEmpty || !pageSections.isEmpty else { return nil }
+
+        var blocks: [String] = []
+        if let location { blocks.append("User's current location: \(location)") }
+        if !snippetLines.isEmpty { blocks.append(snippetLines.prefix(6).joined(separator: "\n")) }
+        blocks.append(contentsOf: pageSections)
+
+        return "Web results for \"\(trimmed)\":\n\n" + blocks.joined(separator: "\n\n")
+    }
+
+    // MARK: - Page reading
+
+    private func readPages(_ urls: [String]) async -> [String] {
+        await withTaskGroup(of: String?.self) { group in
+            for url in urls {
+                group.addTask {
+                    guard let text = await WebPageReader.shared.readText(from: url) else { return nil }
+                    return "Page content from \(url):\n\(text)"
+                }
+            }
+            var sections: [String] = []
+            for await section in group {
+                if let section { sections.append(section) }
+            }
+            return sections
+        }
+    }
+
+    private func uniqued(_ urls: [String]) -> [String] {
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0).inserted }
     }
 
     // MARK: - DuckDuckGo Instant Answer
 
-    private func duckDuckGo(_ query: String) async -> [String]? {
+    private func duckDuckGo(_ query: String) async -> SourceResult? {
         guard var components = URLComponents(string: "https://api.duckduckgo.com/") else { return nil }
         components.queryItems = [
             URLQueryItem(name: "q", value: query),
@@ -54,6 +100,8 @@ struct WebSearchService: Sendable {
         }
 
         var lines: [String] = []
+        var urls: [String] = []
+
         if let direct = answer.Answer, !direct.isEmpty {
             lines.append("Answer: \(direct)")
         }
@@ -61,14 +109,15 @@ struct WebSearchService: Sendable {
             let source = answer.AbstractURL.map { " (\($0))" } ?? ""
             lines.append("\(abstract)\(source)")
         }
+        if let absURL = answer.AbstractURL, !absURL.isEmpty { urls.append(absURL) }
         if let definition = answer.Definition, !definition.isEmpty {
-            let source = answer.DefinitionURL.map { " (\($0))" } ?? ""
-            lines.append("Definition: \(definition)\(source)")
+            lines.append("Definition: \(definition)")
         }
-        for topic in flatten(answer.RelatedTopics ?? []).prefix(3) {
+        for topic in flatten(answer.RelatedTopics ?? []).prefix(4) {
             if let text = topic.Text, !text.isEmpty { lines.append(text) }
+            if let link = topic.FirstURL, !link.isEmpty { urls.append(link) }
         }
-        return lines.isEmpty ? nil : lines
+        return (lines.isEmpty && urls.isEmpty) ? nil : SourceResult(lines: lines, urls: urls)
     }
 
     private func flatten(_ topics: [DDGTopic]) -> [DDGTopic] {
@@ -80,7 +129,7 @@ struct WebSearchService: Sendable {
 
     // MARK: - Wikipedia search
 
-    private func wikipedia(_ query: String) async -> [String]? {
+    private func wikipedia(_ query: String) async -> SourceResult? {
         guard var components = URLComponents(string: "https://en.wikipedia.org/w/api.php") else { return nil }
         components.queryItems = [
             URLQueryItem(name: "action", value: "query"),
@@ -102,10 +151,17 @@ struct WebSearchService: Sendable {
             return nil
         }
 
-        let lines = result.query.search.prefix(3).map { item in
-            "Wikipedia — \(item.title): \(Self.stripHTML(item.snippet))"
+        var lines: [String] = []
+        var urls: [String] = []
+        for item in result.query.search.prefix(3) {
+            lines.append("Wikipedia — \(item.title): \(Self.stripHTML(item.snippet))")
+            if let encoded = item.title
+                .replacingOccurrences(of: " ", with: "_")
+                .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+                urls.append("https://en.wikipedia.org/wiki/\(encoded)")
+            }
         }
-        return lines.isEmpty ? nil : Array(lines)
+        return lines.isEmpty ? nil : SourceResult(lines: lines, urls: urls)
     }
 
     private static func stripHTML(_ string: String) -> String {
