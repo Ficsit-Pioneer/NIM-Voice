@@ -6,6 +6,7 @@ enum NIMError: LocalizedError {
     case unauthorized
     case emptyResponse
     case invalidResponse
+    case modelUnavailable
     case http(status: Int, message: String?)
 
     var errorDescription: String? {
@@ -18,6 +19,8 @@ enum NIMError: LocalizedError {
             return "The model returned an empty response."
         case .invalidResponse:
             return "Unexpected response from the server."
+        case .modelUnavailable:
+            return "This model isn't available for chat here. Open Models and pick another."
         case .http(let status, let message):
             if let message, !message.isEmpty {
                 return "Request failed (\(status)): \(message)"
@@ -47,18 +50,35 @@ actor NIMClient {
 
     /// Sends the full message history and returns the complete assistant reply.
     /// `stream` is deliberately `false` so the reply can be spoken in one pass.
+    /// `imageBase64`, when provided, is attached to the most recent user message
+    /// as multimodal content (for vision-capable models). It is *not* persisted.
     func chat(
         messages: [ChatMessage],
         model: String,
         params: GenerationParams,
-        apiKey: String
+        apiKey: String,
+        imageBase64: String? = nil
     ) async throws -> String {
         guard !apiKey.isEmpty else { throw NIMError.missingAPIKey }
 
         let url = baseURL.appendingPathComponent("chat/completions")
+
+        // Build the wire messages. If an image is attached, the last user turn
+        // becomes a multimodal content array ([text, image_url]).
+        let lastUserID = messages.last(where: { $0.role == .user })?.id
+        let wireMessages: [ChatRequest.Message] = messages.map { message in
+            if let imageBase64, message.role == .user, message.id == lastUserID {
+                return ChatRequest.Message(role: message.role.rawValue, content: .parts([
+                    .text(message.content),
+                    .imageURL("data:image/jpeg;base64,\(imageBase64)")
+                ]))
+            }
+            return ChatRequest.Message(role: message.role.rawValue, content: .text(message.content))
+        }
+
         let payload = ChatRequest(
             model: model,
-            messages: messages.map { ChatRequest.Message(role: $0.role.rawValue, content: $0.content) },
+            messages: wireMessages,
             temperature: params.temperature,
             topP: params.topP,
             maxTokens: params.maxTokens,
@@ -122,6 +142,9 @@ actor NIMClient {
             if http.statusCode == 401 || http.statusCode == 403 {
                 throw NIMError.unauthorized
             }
+            if http.statusCode == 404 {
+                throw NIMError.modelUnavailable
+            }
             let message = Self.extractErrorMessage(from: data)
             throw NIMError.http(status: http.statusCode, message: message)
         }
@@ -148,7 +171,46 @@ private struct ChatRequest: Encodable {
 
     struct Message: Encodable {
         let role: String
-        let content: String
+        let content: Content
+    }
+
+    /// OpenAI-compatible content: either a plain string or an array of parts.
+    enum Content: Encodable {
+        case text(String)
+        case parts([Part])
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .text(let string): try container.encode(string)
+            case .parts(let parts): try container.encode(parts)
+            }
+        }
+    }
+
+    /// A single multimodal content part. Each case encodes only its own fields.
+    enum Part: Encodable {
+        case text(String)
+        case imageURL(String)
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .text(let text):
+                try container.encode("text", forKey: .type)
+                try container.encode(text, forKey: .text)
+            case .imageURL(let url):
+                try container.encode("image_url", forKey: .type)
+                try container.encode(ImageURL(url: url), forKey: .imageURL)
+            }
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case type, text
+            case imageURL = "image_url"
+        }
+
+        struct ImageURL: Encodable { let url: String }
     }
 
     enum CodingKeys: String, CodingKey {

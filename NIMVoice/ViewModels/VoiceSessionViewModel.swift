@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /// Owns the voice state machine and the hands-free orchestration loop:
 ///
@@ -17,6 +18,15 @@ final class VoiceSessionViewModel {
     var errorMessage: String?        // transient, surfaced subtly in the UI
 
     var activeModelID: String
+
+    /// A captured image awaiting the next spoken question (thumbnail for the UI).
+    var pendingImage: UIImage?
+    @ObservationIgnored private var pendingImageBase64: String?
+
+    /// Whether the active model is categorized as vision/multimodal.
+    var activeModelSupportsVision: Bool {
+        NIMModel(id: activeModelID).category == .vision
+    }
 
     // Dependencies (not observed).
     @ObservationIgnored let recognizer: SpeechRecognizer
@@ -112,6 +122,36 @@ final class VoiceSessionViewModel {
         }
     }
 
+    // MARK: - Image attachment (vision)
+
+    /// Compresses and stores a captured image to send with the next utterance.
+    func attachImage(_ image: UIImage) {
+        guard let base64 = ImageEncoder.jpegBase64(image, maxBytes: 130_000) else {
+            errorMessage = "Couldn't process that image."
+            return
+        }
+        pendingImage = image
+        pendingImageBase64 = base64
+        Haptics.tap()
+    }
+
+    func clearPendingImage() {
+        pendingImage = nil
+        pendingImageBase64 = nil
+    }
+
+    /// Pause/resume the mic around a modal (e.g. the camera) that needs focus.
+    func suspendListening() {
+        recognizer.stop()
+        if state == .listening { state = .idle }
+    }
+
+    func resumeListening() {
+        if isSessionActive, !isMuted, state != .thinking, state != .speaking {
+            beginListening()
+        }
+    }
+
     /// Orb tap: barge-in while speaking, otherwise (re)start listening.
     func handleOrbTap() {
         switch state {
@@ -171,7 +211,11 @@ final class VoiceSessionViewModel {
     private func respond(to userText: String) async {
         state = .thinking
         Haptics.tap()
-        conversations.append(ChatMessage(role: .user, content: userText))
+
+        // Consume any pending image exactly once for this turn.
+        let image = pendingImageBase64
+        clearPendingImage()
+        conversations.append(ChatMessage(role: .user, content: userText, hasImage: image != nil))
 
         guard let apiKey = KeychainStore.read(), !apiKey.isEmpty else {
             presentError(NIMError.missingAPIKey, recover: false)
@@ -184,7 +228,8 @@ final class VoiceSessionViewModel {
                 messages: history,
                 model: activeModelID,
                 params: settings.generationParams,
-                apiKey: apiKey
+                apiKey: apiKey,
+                imageBase64: image
             )
             guard isSessionActive else { return }
             conversations.append(ChatMessage(role: .assistant, content: reply))

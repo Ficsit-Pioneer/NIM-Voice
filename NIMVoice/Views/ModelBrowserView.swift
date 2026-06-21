@@ -11,6 +11,9 @@ struct ModelBrowserView: View {
     @State private var models: [NIMModel] = []
     @State private var searchText = ""
     @State private var phase: LoadPhase = .loading
+    /// When false (default) we hide models that aren't usable with chat
+    /// completions (embeddings, rerankers) — the ones that 404 when you talk.
+    @State private var showAllModels = false
 
     private enum LoadPhase: Equatable {
         case loading
@@ -37,6 +40,13 @@ struct ModelBrowserView: View {
             .navigationTitle("Models")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Toggle("Show all models", isOn: $showAllModels)
+                    } label: {
+                        Image(systemName: showAllModels ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
@@ -53,6 +63,10 @@ struct ModelBrowserView: View {
             // Active model, shown prominently at the top.
             Section {
                 activeRow
+            } footer: {
+                Text(showAllModels
+                     ? "Showing all models, including non-chat ones (embeddings, rerankers) that won't work for conversation."
+                     : "Showing chat-capable models. Use the filter (top-left) to show everything.")
             }
 
             if !favoriteModels.isEmpty {
@@ -160,8 +174,15 @@ struct ModelBrowserView: View {
     // MARK: - Filtering / grouping
 
     private var filteredModels: [NIMModel] {
-        guard !searchText.isEmpty else { return models }
-        return models.filter { $0.id.localizedCaseInsensitiveContains(searchText) }
+        var result = models
+        if !showAllModels {
+            // Hide embeddings/rerankers etc. that aren't chat-capable.
+            result = result.filter(\.isChatCapable)
+        }
+        if !searchText.isEmpty {
+            result = result.filter { $0.id.localizedCaseInsensitiveContains(searchText) }
+        }
+        return result
     }
 
     private var favoriteModels: [NIMModel] {

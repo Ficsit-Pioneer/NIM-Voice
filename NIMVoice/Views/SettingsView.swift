@@ -124,14 +124,14 @@ struct SettingsView: View {
 
     private func voiceSection(settings: SettingsStore) -> some View {
         @Bindable var settings = settings
-        return Section("Voice") {
+        return Section {
             Picker("Voice", selection: Binding(
                 get: { settings.voiceIdentifier ?? "" },
                 set: { settings.voiceIdentifier = $0.isEmpty ? nil : $0 }
             )) {
                 Text("System default").tag("")
                 ForEach(availableVoices, id: \.identifier) { voice in
-                    Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                    Text(voiceLabel(voice)).tag(voice.identifier)
                 }
             }
 
@@ -153,6 +153,10 @@ struct SettingsView: View {
                 Text("Pitch").font(.caption).foregroundStyle(.secondary)
                 Slider(value: $settings.pitch, in: 0.5...2.0)
             }
+        } header: {
+            Text("Voice")
+        } footer: {
+            Text("Premium and Enhanced voices sound the most natural. Download more in iOS Settings → Accessibility → Spoken Content → Voices and they'll appear here. (Apple doesn't allow third-party apps to use the actual Siri voice, but Premium voices are the same high quality.)")
         }
     }
 
@@ -221,9 +225,26 @@ struct SettingsView: View {
         }
     }
 
+    /// All installed voices, best quality first (Premium → Enhanced → Default),
+    /// then grouped by language and name. Downloaded Premium/Enhanced voices —
+    /// the "Siri-grade" ones — surface at the top.
     private var availableVoices: [AVSpeechSynthesisVoice] {
-        AVSpeechSynthesisVoice.speechVoices()
-            .sorted { ($0.language, $0.name) < ($1.language, $1.name) }
+        AVSpeechSynthesisVoice.speechVoices().sorted { a, b in
+            if a.quality.rawValue != b.quality.rawValue {
+                return a.quality.rawValue > b.quality.rawValue
+            }
+            if a.language != b.language { return a.language < b.language }
+            return a.name < b.name
+        }
+    }
+
+    private func voiceLabel(_ voice: AVSpeechSynthesisVoice) -> String {
+        let base = "\(voice.name) — \(voice.language)"
+        switch voice.quality {
+        case .premium: return base + " · Premium"
+        case .enhanced: return base + " · Enhanced"
+        default: return base
+        }
     }
 
     private func validateAndSave() {

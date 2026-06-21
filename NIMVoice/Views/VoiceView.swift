@@ -10,6 +10,7 @@ struct VoiceView: View {
     @State private var showSettings = false
     @State private var showModels = false
     @State private var showHistory = false
+    @State private var showCamera = false
 
     var body: some View {
         ZStack {
@@ -23,6 +24,10 @@ struct VoiceView: View {
                 if settings.captionsEnabled {
                     captions
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                if session.pendingImage != nil {
+                    attachedImageBar
+                        .transition(.scale.combined(with: .opacity))
                 }
                 controlBar
             }
@@ -45,6 +50,48 @@ struct VoiceView: View {
         .sheet(isPresented: $showHistory) {
             HistoryView()
         }
+        .fullScreenCover(isPresented: $showCamera, onDismiss: { session.resumeListening() }) {
+            ImagePicker(source: .camera) { image in
+                session.attachImage(image)
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    // MARK: - Attached image
+
+    private var attachedImageBar: some View {
+        HStack(spacing: 12) {
+            if let image = session.pendingImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Photo attached")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                Text(session.activeModelSupportsVision
+                     ? "Ask a question about it"
+                     : "Tip: pick a vision model in Models")
+                    .font(.caption)
+                    .foregroundStyle(session.activeModelSupportsVision ? .white.opacity(0.6) : .orange)
+            }
+            Spacer()
+            Button {
+                session.clearPendingImage()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .accessibilityLabel("Remove photo")
+        }
+        .padding(12)
+        .background(.ultraThinMaterial.opacity(0.7), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.bottom, 8)
     }
 
     // MARK: - Top bar
@@ -152,13 +199,22 @@ struct VoiceView: View {
     // MARK: - Controls
 
     private var controlBar: some View {
-        HStack(spacing: 44) {
+        HStack(spacing: 30) {
             controlButton(
                 symbol: session.isMuted ? "mic.slash.fill" : "mic.fill",
                 tint: session.isMuted ? .red : .white,
                 label: session.isMuted ? "Unmute" : "Mute"
             ) {
                 session.toggleMute()
+            }
+
+            controlButton(
+                symbol: "camera.fill",
+                tint: session.activeModelSupportsVision ? .accentColor : .white,
+                label: "Camera"
+            ) {
+                session.suspendListening()
+                showCamera = true
             }
 
             controlButton(symbol: "captions.bubble", tint: settings.captionsEnabled ? .accentColor : .white, label: "Captions") {

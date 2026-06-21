@@ -61,7 +61,11 @@ struct NIMModel: Identifiable, Codable, Hashable, Sendable {
         if lower.contains("embed") || lower.contains("embedding") { return .embedding }
         if lower.contains("rerank") { return .reranking }
         if lower.contains("guard") || lower.contains("safety") || lower.contains("shield") || lower.contains("nemoguard") { return .safety }
-        if lower.contains("vision") || lower.contains("-vl") || lower.contains("vlm") || lower.contains("vila") || lower.contains("image") || lower.contains("ocr") { return .vision }
+        if lower.contains("vision") || lower.contains("-vl") || lower.contains("vlm") || lower.contains("vila")
+            || lower.contains("image") || lower.contains("ocr") || lower.contains("neva") || lower.contains("kosmos")
+            || lower.contains("florence") || lower.contains("paligemma") || lower.contains("pixtral")
+            || lower.contains("molmo") || lower.contains("internvl") || lower.contains("phi-3.5-vision")
+            || lower.contains("llama-3.2-11b-vision") || lower.contains("llama-3.2-90b-vision") || lower.contains("deplot") { return .vision }
         if lower.contains("code") || lower.contains("coder") || lower.contains("starcoder") { return .code }
         return .chat
     }
