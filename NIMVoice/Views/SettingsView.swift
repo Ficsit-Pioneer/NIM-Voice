@@ -25,6 +25,7 @@ struct SettingsView: View {
                 voiceSection(settings: settings)
                 generationSection(settings: settings)
                 listeningSection(settings: settings)
+                webSection(settings: settings)
                 aboutSection
             }
             .navigationTitle("Settings")
@@ -200,6 +201,17 @@ struct SettingsView: View {
             Text("Listening")
         } footer: {
             Text("Silence timeout controls how long a pause ends your turn. Lower is snappier; higher tolerates longer pauses.")
+        }
+    }
+
+    private func webSection(settings: SettingsStore) -> some View {
+        @Bindable var settings = settings
+        return Section {
+            Toggle("Web search", isOn: $settings.webSearchEnabled)
+        } header: {
+            Text("Web")
+        } footer: {
+            Text("When on, each question is first looked up via DuckDuckGo and Wikipedia (no API key needed) and the results are handed to the model. Great for facts, definitions, and \"who/what is…\"; coverage is limited for very recent events.")
         }
     }
 

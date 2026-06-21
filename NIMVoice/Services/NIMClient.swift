@@ -52,12 +52,15 @@ actor NIMClient {
     /// `stream` is deliberately `false` so the reply can be spoken in one pass.
     /// `imageBase64`, when provided, is attached to the most recent user message
     /// as multimodal content (for vision-capable models). It is *not* persisted.
+    /// `searchContext`, when provided, is injected as a system message ahead of
+    /// the latest user turn so the model can ground its answer in web results.
     func chat(
         messages: [ChatMessage],
         model: String,
         params: GenerationParams,
         apiKey: String,
-        imageBase64: String? = nil
+        imageBase64: String? = nil,
+        searchContext: String? = nil
     ) async throws -> String {
         guard !apiKey.isEmpty else { throw NIMError.missingAPIKey }
 
@@ -66,7 +69,7 @@ actor NIMClient {
         // Build the wire messages. If an image is attached, the last user turn
         // becomes a multimodal content array ([text, image_url]).
         let lastUserID = messages.last(where: { $0.role == .user })?.id
-        let wireMessages: [ChatRequest.Message] = messages.map { message in
+        var wireMessages: [ChatRequest.Message] = messages.map { message in
             if let imageBase64, message.role == .user, message.id == lastUserID {
                 return ChatRequest.Message(role: message.role.rawValue, content: .parts([
                     .text(message.content),
@@ -74,6 +77,23 @@ actor NIMClient {
                 ]))
             }
             return ChatRequest.Message(role: message.role.rawValue, content: .text(message.content))
+        }
+
+        // Inject web-search results as a system message right before the last
+        // user turn, so they apply to the current question.
+        if let searchContext, !searchContext.isEmpty,
+           let lastUserIndex = wireMessages.lastIndex(where: { $0.role == Role.user.rawValue }) {
+            let instruction = """
+            You can use the following web search results to answer the user's most recent question. \
+            Prefer them for facts and current information, and mention sources by name when relevant. \
+            If they don't contain the answer, rely on your own knowledge and say so briefly.
+
+            \(searchContext)
+            """
+            wireMessages.insert(
+                ChatRequest.Message(role: Role.system.rawValue, content: .text(instruction)),
+                at: lastUserIndex
+            )
         }
 
         let payload = ChatRequest(

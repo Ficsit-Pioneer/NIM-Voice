@@ -34,6 +34,7 @@ final class SettingsStore {
     var silenceTimeout: Double      // seconds of silence before endpointing
     var autoListen: Bool            // re-open mic automatically after each reply
     var captionsEnabled: Bool
+    var webSearchEnabled: Bool      // ground answers with keyless web search
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var isLoading = true
@@ -53,6 +54,7 @@ final class SettingsStore {
         silenceTimeout = defaults.object(forKey: Keys.silenceTimeout) as? Double ?? 1.4
         autoListen = defaults.object(forKey: Keys.autoListen) as? Bool ?? true
         captionsEnabled = defaults.object(forKey: Keys.captions) as? Bool ?? false
+        webSearchEnabled = defaults.object(forKey: Keys.webSearch) as? Bool ?? false
 
         isLoading = false
         observeAndPersist()
@@ -84,7 +86,7 @@ final class SettingsStore {
             // Touch every persisted property so all are tracked.
             _ = (systemPrompt, activeModelID, favoriteModelIDs, voiceIdentifier,
                  speechRate, pitch, temperature, topP, maxTokens,
-                 silenceTimeout, autoListen, captionsEnabled)
+                 silenceTimeout, autoListen, captionsEnabled, webSearchEnabled)
         } onChange: { [weak self] in
             // onChange fires *before* the mutation commits, so defer to the next
             // main-actor turn to read the new values, then re-arm.
@@ -113,6 +115,7 @@ final class SettingsStore {
         defaults.set(silenceTimeout, forKey: Keys.silenceTimeout)
         defaults.set(autoListen, forKey: Keys.autoListen)
         defaults.set(captionsEnabled, forKey: Keys.captions)
+        defaults.set(webSearchEnabled, forKey: Keys.webSearch)
     }
 
     private enum Keys {
@@ -128,5 +131,6 @@ final class SettingsStore {
         static let silenceTimeout = "settings.silenceTimeout"
         static let autoListen = "settings.autoListen"
         static let captions = "settings.captions"
+        static let webSearch = "settings.webSearch"
     }
 }

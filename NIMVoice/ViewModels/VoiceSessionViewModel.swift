@@ -222,6 +222,11 @@ final class VoiceSessionViewModel {
             return
         }
 
+        // Optional keyless web search to ground the answer (best-effort).
+        let searchContext = settings.webSearchEnabled
+            ? await WebSearchService.shared.search(userText)
+            : nil
+
         let history = conversations.current?.messages ?? []
         do {
             let reply = try await client.chat(
@@ -229,7 +234,8 @@ final class VoiceSessionViewModel {
                 model: activeModelID,
                 params: settings.generationParams,
                 apiKey: apiKey,
-                imageBase64: image
+                imageBase64: image,
+                searchContext: searchContext
             )
             guard isSessionActive else { return }
             conversations.append(ChatMessage(role: .assistant, content: reply))

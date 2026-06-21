@@ -199,7 +199,7 @@ struct VoiceView: View {
     // MARK: - Controls
 
     private var controlBar: some View {
-        HStack(spacing: 30) {
+        HStack(spacing: 16) {
             controlButton(
                 symbol: session.isMuted ? "mic.slash.fill" : "mic.fill",
                 tint: session.isMuted ? .red : .white,
@@ -217,6 +217,15 @@ struct VoiceView: View {
                 showCamera = true
             }
 
+            controlButton(
+                symbol: "globe",
+                tint: settings.webSearchEnabled ? .accentColor : .white,
+                label: settings.webSearchEnabled ? "Web search on" : "Web search off"
+            ) {
+                withAnimation(.spring(response: 0.4)) { settings.webSearchEnabled.toggle() }
+                Haptics.tap()
+            }
+
             controlButton(symbol: "captions.bubble", tint: settings.captionsEnabled ? .accentColor : .white, label: "Captions") {
                 withAnimation(.spring(response: 0.4)) { settings.captionsEnabled.toggle() }
             }
@@ -231,9 +240,9 @@ struct VoiceView: View {
     private func controlButton(symbol: String, tint: Color, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.title2)
+                .font(.title3)
                 .foregroundStyle(tint)
-                .frame(width: 60, height: 60)
+                .frame(width: 54, height: 54)
                 .background(.white.opacity(0.12), in: Circle())
         }
         .accessibilityLabel(label)
