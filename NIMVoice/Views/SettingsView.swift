@@ -1,0 +1,245 @@
+import SwiftUI
+import AVFoundation
+
+/// All user-tunable settings: API key (Keychain), system prompt, voice, speech
+/// rate/pitch, generation params, endpointing sensitivity, and auto-listen.
+struct SettingsView: View {
+    @Environment(SettingsStore.self) private var settings
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var apiKeyDraft = ""
+    @State private var keyValidation: KeyValidation = .idle
+    @State private var hasStoredKey = KeychainStore.hasKey
+
+    private enum KeyValidation: Equatable {
+        case idle, validating, valid, invalid
+    }
+
+    var body: some View {
+        // Each section re-wraps the store with @Bindable to derive bindings.
+        NavigationStack {
+            Form {
+                apiKeySection
+                modelSection(settings: settings)
+                promptSection(settings: settings)
+                voiceSection(settings: settings)
+                generationSection(settings: settings)
+                listeningSection(settings: settings)
+                aboutSection
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    // MARK: - API key
+
+    private var apiKeySection: some View {
+        Section {
+            SecureField(hasStoredKey ? "•••••••• (stored)" : "nvapi-…", text: $apiKeyDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+            HStack {
+                Button {
+                    validateAndSave()
+                } label: {
+                    switch keyValidation {
+                    case .validating: ProgressView()
+                    default: Text(hasStoredKey ? "Update & validate" : "Validate & save")
+                    }
+                }
+                .disabled(apiKeyDraft.isEmpty || keyValidation == .validating)
+
+                Spacer()
+
+                if hasStoredKey {
+                    Button("Clear", role: .destructive) {
+                        KeychainStore.delete()
+                        hasStoredKey = false
+                        keyValidation = .idle
+                        apiKeyDraft = ""
+                    }
+                }
+            }
+
+            switch keyValidation {
+            case .valid:
+                Label("Key validated and saved.", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green).font(.caption)
+            case .invalid:
+                Label("That key was rejected by NVIDIA.", systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red).font(.caption)
+            default:
+                EmptyView()
+            }
+        } header: {
+            Text("NVIDIA API Key")
+        } footer: {
+            Text("Stored in your iCloud Keychain — it survives reinstalls and syncs privately to your own Apple ID devices. For production, proxy requests through your own backend instead of shipping a key.")
+        }
+    }
+
+    // MARK: - Model
+
+    private func modelSection(settings: SettingsStore) -> some View {
+        Section("Active Model") {
+            HStack {
+                Image(systemName: "cpu")
+                Text(settings.activeModelID)
+                    .font(.subheadline)
+                    .lineLimit(2)
+            }
+            Text("Change this from the Models browser on the main screen.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - System prompt
+
+    private func promptSection(settings: SettingsStore) -> some View {
+        @Bindable var settings = settings
+        return Section {
+            TextEditor(text: $settings.systemPrompt)
+                .frame(minHeight: 110)
+                .font(.callout)
+            Button("Reset to default") {
+                settings.systemPrompt = SettingsStore.defaultSystemPrompt
+            }
+            .font(.caption)
+        } header: {
+            Text("System Prompt")
+        } footer: {
+            Text("Sets the assistant's behavior. Kept brief and speech-friendly by default.")
+        }
+    }
+
+    // MARK: - Voice
+
+    private func voiceSection(settings: SettingsStore) -> some View {
+        @Bindable var settings = settings
+        return Section("Voice") {
+            Picker("Voice", selection: Binding(
+                get: { settings.voiceIdentifier ?? "" },
+                set: { settings.voiceIdentifier = $0.isEmpty ? nil : $0 }
+            )) {
+                Text("System default").tag("")
+                ForEach(availableVoices, id: \.identifier) { voice in
+                    Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                }
+            }
+
+            VStack(alignment: .leading) {
+                Text("Speech rate").font(.caption).foregroundStyle(.secondary)
+                Slider(
+                    value: $settings.speechRate,
+                    in: Double(AVSpeechUtteranceMinimumSpeechRate)...Double(AVSpeechUtteranceMaximumSpeechRate)
+                ) {
+                    Text("Rate")
+                } minimumValueLabel: {
+                    Image(systemName: "tortoise")
+                } maximumValueLabel: {
+                    Image(systemName: "hare")
+                }
+            }
+
+            VStack(alignment: .leading) {
+                Text("Pitch").font(.caption).foregroundStyle(.secondary)
+                Slider(value: $settings.pitch, in: 0.5...2.0)
+            }
+        }
+    }
+
+    // MARK: - Generation
+
+    private func generationSection(settings: SettingsStore) -> some View {
+        @Bindable var settings = settings
+        return Section {
+            labeledSlider("Temperature", value: $settings.temperature, range: 0...2, spec: "%.2f")
+            labeledSlider("Top-p", value: $settings.topP, range: 0...1, spec: "%.2f")
+            Stepper(value: $settings.maxTokens, in: 64...8192, step: 64) {
+                HStack {
+                    Text("Max tokens")
+                    Spacer()
+                    Text("\(settings.maxTokens)").foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Generation")
+        } footer: {
+            Text("Sent with every NIM request.")
+        }
+    }
+
+    // MARK: - Listening
+
+    private func listeningSection(settings: SettingsStore) -> some View {
+        @Bindable var settings = settings
+        return Section {
+            VStack(alignment: .leading) {
+                HStack {
+                    Text("Silence timeout")
+                    Spacer()
+                    Text(String(format: "%.1fs", settings.silenceTimeout)).foregroundStyle(.secondary)
+                }
+                Slider(value: $settings.silenceTimeout, in: 0.6...3.0, step: 0.1)
+            }
+            Toggle("Auto-listen after reply", isOn: $settings.autoListen)
+            Toggle("Show captions", isOn: $settings.captionsEnabled)
+        } header: {
+            Text("Listening")
+        } footer: {
+            Text("Silence timeout controls how long a pause ends your turn. Lower is snappier; higher tolerates longer pauses.")
+        }
+    }
+
+    private var aboutSection: some View {
+        Section {
+            LabeledContent("Endpoint", value: "integrate.api.nvidia.com")
+            LabeledContent("Streaming", value: "Off (full reply spoken at once)")
+        } header: {
+            Text("About")
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func labeledSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, spec: String) -> some View {
+        VStack(alignment: .leading) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(String(format: spec, value.wrappedValue)).foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: range)
+        }
+    }
+
+    private var availableVoices: [AVSpeechSynthesisVoice] {
+        AVSpeechSynthesisVoice.speechVoices()
+            .sorted { ($0.language, $0.name) < ($1.language, $1.name) }
+    }
+
+    private func validateAndSave() {
+        keyValidation = .validating
+        let key = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let valid = await NIMClient.shared.validateKey(key)
+            if valid {
+                hasStoredKey = KeychainStore.save(key)
+                keyValidation = .valid
+                apiKeyDraft = ""
+                Haptics.success()
+            } else {
+                keyValidation = .invalid
+                Haptics.warning()
+            }
+        }
+    }
+}

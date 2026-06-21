@@ -1,0 +1,17 @@
+# Xcode build output
+build/
+DerivedData/
+
+# Per-user Xcode state (keep shared schemes in xcshareddata)
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS / Windows cruft
+.DS_Store
+Thumbs.db

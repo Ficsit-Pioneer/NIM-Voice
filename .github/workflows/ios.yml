@@ -1,0 +1,70 @@
+name: iOS build
+
+# Builds NIM Voice on a free cloud macOS runner so you never need a Mac.
+# - "test" runs the unit tests on a simulator (your green check).
+# - "build-ipa" produces an UNSIGNED NIMVoice.ipa you download and then sign
+#   on Windows with Sideloadly or AltStore (see SIDELOADING.md).
+#
+# Path assumption: the repository root contains NIMVoice.xcodeproj (i.e. you
+# pushed the contents of the "NIMVoice" folder as the repo root). If instead
+# your repo root contains a "NIMVoice/" subfolder, prefix the -project paths
+# below with "NIMVoice/".
+#
+# Cost: GitHub Actions is unlimited-free for PUBLIC repos. This project keeps no
+# secrets in source (the API key is entered in-app, never committed), so a
+# public repo is safe. Private repos get a smaller monthly free allowance.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Unit tests (simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Run tests
+        run: >
+          xcodebuild test
+          -project NIMVoice.xcodeproj
+          -scheme NIMVoice
+          -destination 'platform=iOS Simulator,name=iPhone 16'
+          CODE_SIGNING_ALLOWED=NO
+
+  build-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Archive (unsigned)
+        run: >
+          xcodebuild clean archive
+          -project NIMVoice.xcodeproj
+          -scheme NIMVoice
+          -configuration Release
+          -destination 'generic/platform=iOS'
+          -archivePath "$PWD/build/NIMVoice"
+          CODE_SIGN_IDENTITY=""
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGNING_ALLOWED=NO
+      - name: Package .ipa
+        run: |
+          cd build/NIMVoice.xcarchive/Products/Applications
+          mkdir Payload
+          mv NIMVoice.app Payload/
+          zip -r "$GITHUB_WORKSPACE/NIMVoice.ipa" Payload >/dev/null
+          echo "Built NIMVoice.ipa"
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NIMVoice-ipa
+          path: NIMVoice.ipa
+          if-no-files-found: error
